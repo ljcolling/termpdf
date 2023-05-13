@@ -1,0 +1,15 @@
+[package]
+name = "termpdf"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.71"
+base64 = "0.21.0"
+image = "0.24.5"
+notify = "5.1.0"
+notify-debouncer-mini = "0.2.1"
+pdfium-render = "0.7.29"
+termion = "2.0.1"
