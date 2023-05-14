@@ -21,8 +21,9 @@ use termion::raw::IntoRawMode;
 #[derive(Debug)]
 struct Pdf {
     file: String,
-    pages: Vec<Page>,
+    page: Page,
     current_page: usize,
+    length: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -112,6 +113,51 @@ pub trait Apply<Res> {
 impl<T: ?Sized, Res> Apply<Res> for T {}
 
 impl Pdf {
+    fn get_page(&mut self, p: usize)  {
+
+
+        let pdfium = Pdfium::new(Pdfium::bind_to_library(
+            Pdfium::pdfium_platform_library_name_at_path("/usr/local/lib/"),
+        ).unwrap());
+
+        let document = pdfium.load_pdf_from_file(&self.file, None).unwrap();
+
+        let render_config = PdfRenderConfig::new()
+            .set_target_height(1920)
+            .use_lcd_text_rendering(false)
+            .disable_native_text_rendering(false)
+            .rotate_if_landscape(PdfBitmapRotation::Degrees90, true);
+
+        let page: Page = document
+            .pages().get(p as u16)
+            // .iter()
+            .apply(|page| {
+                let mut height: u32 = 0;
+                let mut width: u32 = 0;
+                let mut buffer: Cursor<Vec<u8>> = std::io::Cursor::new(vec![]);
+                page.unwrap().render_with_config(&render_config)
+                    .expect("Error")
+                    .as_image()
+                    .apply(|x| {
+                        height = x.height();
+                        width = x.width();
+                        x
+                    })
+                    .write_to(&mut buffer, image::ImageFormat::Tiff)
+                    .expect("Error");
+                let p = Page {
+                    data: buffer.into_inner(),
+                    size: (width, height),
+                };
+                return p;
+            });
+            // .collect();
+
+        self.page = page;
+        self.current_page = p;
+    }
+
+
     fn new(file: &String, current_page: Option<usize>) -> Result<Pdf> {
         let p = match current_page {
             None => 0,
@@ -129,14 +175,16 @@ impl Pdf {
             .disable_native_text_rendering(false)
             .rotate_if_landscape(PdfBitmapRotation::Degrees90, true);
 
-        let pages: Vec<Page> = document
-            .pages()
-            .iter()
-            .map(|page| {
+        let length = document.pages().len() as usize;
+
+        let page: Page = document
+            .pages().get(p as u16)
+            // .iter()
+            .apply(|page| {
                 let mut height: u32 = 0;
                 let mut width: u32 = 0;
                 let mut buffer: Cursor<Vec<u8>> = std::io::Cursor::new(vec![]);
-                page.render_with_config(&render_config)
+                page.unwrap().render_with_config(&render_config)
                     .expect("Error")
                     .as_image()
                     .apply(|x| {
@@ -151,13 +199,14 @@ impl Pdf {
                     size: (width, height),
                 };
                 return p;
-            })
-            .collect();
+            });
+            // .collect();
 
         Ok(Pdf {
             file: file.clone(),
-            pages,
+            page,
             current_page: p,
+            length
         })
     }
 }
@@ -257,8 +306,8 @@ fn browser(pdf: &mut Pdf, rx: &Receiver<Msg>) -> anyhow::Result<Refersh> {
         termion::clear::All,
     )?;
 
-    let p = pdf.current_page;
-    pdf.pages[p].display()?;
+   
+    pdf.page.display()?;
 
     for c in rx {
         match c {
@@ -273,15 +322,17 @@ fn browser(pdf: &mut Pdf, rx: &Receiver<Msg>) -> anyhow::Result<Refersh> {
             Msg::Refresh => return Ok(Refersh::Oker),
             Msg::NextPage => {
 
-                if pdf.current_page != (pdf.pages.len() - 1) {
+                if pdf.current_page != (pdf.length - 1) {
                     pdf.current_page = pdf.current_page + 1;
-                    pdf.pages[pdf.current_page].display()?
+                    pdf.get_page(pdf.current_page);
+                    pdf.page.display()?;
                 };
             }
             Msg::PreviousPage => {
                 if pdf.current_page != 0 {
                     pdf.current_page = pdf.current_page - 1;
-                    pdf.pages[pdf.current_page].display()?;
+                    pdf.get_page(pdf.current_page);
+                    pdf.page.display()?;
                 }
             }
         }
