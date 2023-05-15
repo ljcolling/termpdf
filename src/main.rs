@@ -113,8 +113,14 @@ pub trait Apply<Res> {
 impl<T: ?Sized, Res> Apply<Res> for T {}
 
 impl Pdf {
-    fn get_page(&mut self, p: usize)  {
-
+    fn display(&mut self) -> Result<()>  {
+        let p = self.current_page;
+        self.get_page(p);
+        self.page.display()?;
+        Ok(())
+    }
+    fn get_page(&mut self, p: usize) {
+        
 
         let pdfium = Pdfium::new(Pdfium::bind_to_library(
             Pdfium::pdfium_platform_library_name_at_path("/usr/local/lib/"),
@@ -155,6 +161,7 @@ impl Pdf {
 
         self.page = page;
         self.current_page = p;
+        
     }
 
 
@@ -169,45 +176,18 @@ impl Pdf {
 
         let document = pdfium.load_pdf_from_file(&file, None)?;
 
-        let render_config = PdfRenderConfig::new()
-            .set_target_height(1920)
-            .use_lcd_text_rendering(false)
-            .disable_native_text_rendering(false)
-            .rotate_if_landscape(PdfBitmapRotation::Degrees90, true);
-
         let length = document.pages().len() as usize;
 
-        let page: Page = document
-            .pages().get(p as u16)
-            // .iter()
-            .apply(|page| {
-                let mut height: u32 = 0;
-                let mut width: u32 = 0;
-                let mut buffer: Cursor<Vec<u8>> = std::io::Cursor::new(vec![]);
-                page.unwrap().render_with_config(&render_config)
-                    .expect("Error")
-                    .as_image()
-                    .apply(|x| {
-                        height = x.height();
-                        width = x.width();
-                        x
-                    })
-                    .write_to(&mut buffer, image::ImageFormat::Tiff)
-                    .expect("Error");
-                let p = Page {
-                    data: buffer.into_inner(),
-                    size: (width, height),
-                };
-                return p;
-            });
-            // .collect();
 
-        Ok(Pdf {
+        let mut pdf = Pdf {
             file: file.clone(),
-            page,
+            page: Page{data: vec![0], size: (0,0)},
             current_page: p,
             length
-        })
+        };
+
+        pdf.get_page(p);
+        Ok(pdf)
     }
 }
 
@@ -231,6 +211,7 @@ fn main() {
     };
 }
 fn run(file: String) -> anyhow::Result<()> {
+    println!("Loaded...");
     let file2 = file.clone();
     let mut pdf = match Pdf::new(&file.clone(), None) {
         Ok(v) => v,
@@ -307,7 +288,7 @@ fn browser(pdf: &mut Pdf, rx: &Receiver<Msg>) -> anyhow::Result<Refersh> {
     )?;
 
    
-    pdf.page.display()?;
+    pdf.display()?;
 
     for c in rx {
         match c {
@@ -324,14 +305,14 @@ fn browser(pdf: &mut Pdf, rx: &Receiver<Msg>) -> anyhow::Result<Refersh> {
 
                 if pdf.current_page != (pdf.length - 1) {
                     pdf.current_page = pdf.current_page + 1;
-                    pdf.get_page(pdf.current_page);
+                    pdf.get_page(pdf.current_page);//.display()?;
                     pdf.page.display()?;
                 };
             }
             Msg::PreviousPage => {
                 if pdf.current_page != 0 {
                     pdf.current_page = pdf.current_page - 1;
-                    pdf.get_page(pdf.current_page);
+                    pdf.get_page(pdf.current_page);//.display()?;
                     pdf.page.display()?;
                 }
             }
